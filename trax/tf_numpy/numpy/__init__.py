@@ -62,3 +62,13 @@ except ImportError:
     max = amax  # pylint: disable=redefined-builtin,undefined-variable
     min = amin  # pylint: disable=redefined-builtin,undefined-variable
     round = around  # pylint: disable=redefined-builtin,undefined-variable
+
+try:
+  from tensorflow.python.framework import ops
+  from tensorflow.python.ops.numpy_ops import np_math_ops
+  # This should be moved to every individual file/test.
+  ops.enable_numpy_style_type_promotion()
+  np_math_ops.enable_numpy_methods_on_tensor()
+
+except ImportError:
+  pass

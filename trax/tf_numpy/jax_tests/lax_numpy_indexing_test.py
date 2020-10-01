@@ -46,6 +46,9 @@ import trax.tf_numpy.numpy as jnp
 from trax.tf_numpy.jax_tests.config import config
 import trax.tf_numpy.jax_tests.test_util as jtu
 
+from tensorflow.python.framework import ops  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.ops.numpy_ops import np_math_ops  # pylint: disable=g-direct-tensorflow-import
+
 config.parse_flags_with_absl()
 
 
@@ -882,4 +885,6 @@ class IndexedUpdateTest(jtu.TestCase):
 
 if __name__ == "__main__":
   tf.config.set_soft_device_placement(False)
+  ops.enable_numpy_style_type_promotion()
+  np_math_ops.enable_numpy_methods_on_tensor()
   absltest.main()
