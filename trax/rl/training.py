@@ -46,11 +46,13 @@ from trax.supervised import lr_schedules as lr
 class Agent:
   """Abstract class for RL agents, presenting the required API."""
 
-  def __init__(self, task: rl_task.RLTask,
+  def __init__(self,
+               task: rl_task.RLTask,
                n_trajectories_per_epoch=None,
                n_interactions_per_epoch=None,
                n_eval_episodes=0,
                eval_steps=None,
+               eval_temperature=0.5,
                only_eval=False,
                output_dir=None,
                timestep_to_np=None):
@@ -68,6 +70,9 @@ class Agent:
         temperature 0 in each epoch -- used for evaluation only.
       eval_steps: an optional list of max_steps to use for evaluation
         (defaults to task.max_steps).
+      eval_temperature: we always train with temperature 1 and evaluate with
+        temperature 0; this option adds one more variant of the temperature
+        (defaults to 0.5).
       only_eval: If set to True, then trajectories are collected only for
         for evaluation purposes, but they are not recorded.
       output_dir: Path telling where to save outputs such as checkpoints.
@@ -88,7 +93,9 @@ class Agent:
     self._output_dir = output_dir
     self._avg_returns = []
     self._n_eval_episodes = n_eval_episodes
+    self._eval_temperature = eval_temperature
     self._avg_returns_temperature0 = {step: [] for step in self._eval_steps}
+    self._avg_returns_temperature_t = {step: [] for step in self._eval_steps}
     if self._output_dir is not None:
       self.init_from_file()
 
@@ -124,9 +131,12 @@ class Agent:
     task_path = os.path.join(self._output_dir, task_file_name)
     self._task.save_to_file(task_path)
     file_path = os.path.join(self._output_dir, file_name)
-    dictionary = {'epoch': self._epoch,
-                  'avg_returns': self._avg_returns,
-                  'avg_returns_temperature0': self._avg_returns_temperature0}
+    dictionary = {
+        'epoch': self._epoch,
+        'avg_returns': self._avg_returns,
+        'avg_returns_temperature0': self._avg_returns_temperature0,
+        'avg_returns_temperature_t': self._avg_returns_temperature_t
+    }
     with tf.io.gfile.GFile(file_path, 'wb') as f:
       pickle.dump(dictionary, f)
 
@@ -145,6 +155,7 @@ class Agent:
     self._epoch = dictionary['epoch']
     self._avg_returns = dictionary['avg_returns']
     self._avg_returns_temperature0 = dictionary['avg_returns_temperature0']
+    self._avg_returns_temperature_t = dictionary['avg_returns_temperature_t']
 
   def _collect_trajectories(self):
     return self.task.collect_trajectories(
@@ -236,6 +247,17 @@ class Agent:
             supervised.trainer_lib.log(
                 'Avg return with temperature 0 at %d steps in epoch %d was %.2f.'
                 % (steps, self._epoch, avg_return_temperature0))
+            avg_return_temperature_t = self.task.collect_trajectories(
+                lambda x: self.policy(x, temperature=self._eval_temperature),
+                n_trajectories=self._n_eval_episodes,
+                max_steps=steps,
+                only_eval=True)
+            self._avg_returns_temperature_t[steps].append(
+                avg_return_temperature_t)
+            supervised.trainer_lib.log(
+                'Avg return with temperature %d at %d steps in epoch %d was %.2f.'
+                % (self._eval_temperature, steps, self._epoch,
+                   avg_return_temperature_t))
         if sw is not None:
           sw.scalar('timing/collect', time.time() - cur_time,
                     step=self._epoch)
@@ -245,6 +267,11 @@ class Agent:
               sw.scalar('rl/avg_return_temperature0_steps%d' % steps,
                         self._avg_returns_temperature0[steps][-1],
                         step=self._epoch)
+              sw.scalar(
+                  'rl/avg_return_temperature_%d_steps%d' %
+                  (steps, self._eval_temperature),
+                  self._avg_returns_temperature_t[steps][-1],
+                  step=self._epoch)
           sw.scalar('rl/n_interactions', self.task.n_interactions(),
                     step=self._epoch)
           sw.scalar('rl/n_interactions_per_second',
